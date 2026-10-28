@@ -4,6 +4,20 @@ export const angleDifference = (a: number, b: number) => ((a - b + 540) % 360) -
 export type OrientationSample = { beta: number; gamma: number; alpha: number | null; screen: number; time: number };
 export type MotionResult = { roll: number; pitch: number; level: boolean };
 export type Toss = { power: number; rotation: number; twist: number };
+type DeviceRates = { alpha: number | null; beta: number | null; gamma: number | null };
+export type WristRates = { pitch: number | null; twist: number | null };
+
+// DeviceMotion rotationRate uses alpha=X, beta=Y, gamma=Z. These names
+// differ from DeviceOrientation's Euler angles (beta=X, gamma=Y, alpha=Z).
+// https://www.w3.org/TR/orientation-event/#devicemotioneventrotationrate
+export function wristRates(rate: DeviceRates | null, screenAngle: number): WristRates {
+  const r = screenAngle * Math.PI / 180;
+  const c = Math.cos(r), s = Math.sin(r);
+  const pitchAvailable = rate !== null
+    && (Math.abs(c) < .001 || rate.alpha !== null)
+    && (Math.abs(s) < .001 || rate.beta !== null);
+  return { pitch: pitchAvailable ? (rate!.alpha ?? 0) * c - (rate!.beta ?? 0) * s : null, twist: rate?.gamma ?? null };
+}
 
 /** Device input is normalized independently of rendering and game rules. */
 export class MotionController {
@@ -20,8 +34,6 @@ export class MotionController {
   private previous?: OrientationSample;
   private tossArmed = true;
   private lastToss = -Infinity;
-  private turnTime = -Infinity;
-  private turnSpeed = 0;
   private signedTurn = 0;
   private twistSpeed = 0;
   private gravity = { x: 0, y: 0, z: 0 };
@@ -30,7 +42,8 @@ export class MotionController {
     this.base = { ...sample }; this.previous = { ...sample }; this.calibrated = true;
     this.needsCalibration = false; this.roll = this.pitch = this.yaw = 0; this.level = true;
     this.tossArmed = true;
-    this.turnTime = -Infinity; this.turnSpeed = this.signedTurn = this.twistSpeed = 0;
+    this.signedTurn = this.twistSpeed = 0;
+    this.hasGravity = false;
   }
   orientation(s: OrientationSample): MotionResult {
     this.lastOrientation = s.time;
@@ -48,28 +61,30 @@ export class MotionController {
     if(s.alpha !== null && this.base.alpha !== null) this.yaw += (angleDifference(s.alpha, this.base.alpha) - this.yaw) * smooth;
     this.signedTurn = (angleDifference(s.beta,this.previous.beta)*Math.cos(radians)-angleDifference(s.gamma,this.previous.gamma)*Math.sin(radians))/seconds;
     this.twistSpeed = s.alpha!==null && this.previous.alpha!==null ? angleDifference(s.alpha,this.previous.alpha)/seconds : 0;
-    const rate = Math.abs(this.signedTurn);
-    if(rate>45) { this.turnTime=s.time; this.turnSpeed=rate; }
     this.previous={...s};
     // A generous neutral cone, relative to the user's comfortable grip.
     this.level = Math.hypot(this.roll, this.pitch) <= 14;
     return {...result,roll:this.roll*this.handedness,pitch:this.pitch,level:this.level};
   }
-  acceleration(a: { x: number; y: number; z: number }, includesGravity: boolean, rotationSpeed: number, time: number, cooking: boolean, twistRate = 0, signedRate = rotationSpeed): Toss | null {
+  acceleration(a: { x: number; y: number; z: number }, includesGravity: boolean, time: number, cooking: boolean, rates: WristRates = { pitch: null, twist: null }): Toss | null {
     let force = a;
     if(includesGravity) {
       if(!this.hasGravity) { this.gravity={...a}; this.hasGravity=true; return null; }
       this.gravity.x += (a.x-this.gravity.x)*.12; this.gravity.y += (a.y-this.gravity.y)*.12; this.gravity.z += (a.z-this.gravity.z)*.12;
       force={x:a.x-this.gravity.x,y:a.y-this.gravity.y,z:a.z-this.gravity.z};
     }
-    const strength=Math.hypot(force.x,force.y,force.z);
+    // A sideways shake is movement of the pan, not a stronger vertical toss.
+    const r = (this.base?.screen ?? 0) * Math.PI / 180;
+    const vertical = force.y * Math.cos(r) - force.x * Math.sin(r);
+    const strength=Math.hypot(vertical,force.z);
     if(strength<2.5/this.sensitivity) this.tossArmed=true;
-    const wristTurn=rotationSpeed>55/this.sensitivity || (time-this.turnTime<180 && this.turnSpeed>55/this.sensitivity);
+    const recent = time >= this.lastOrientation && time-this.lastOrientation < 180;
+    // Zero on a supplied axis is real data; only missing axes use orientation.
+    const turn = rates.pitch ?? (recent ? this.signedTurn : 0);
+    const twist = rates.twist ?? (recent ? this.twistSpeed : 0);
+    const wristTurn=Math.abs(turn)>55/this.sensitivity;
     if(cooking && this.calibrated && !this.needsCalibration && this.tossArmed && wristTurn && strength>5.5/this.sensitivity && time-this.lastToss>1000) {
       this.lastToss=time; this.tossArmed=false;
-      const recent = time-this.lastOrientation < 180;
-      const turn = Math.abs(signedRate)>1 ? signedRate : recent ? this.signedTurn : rotationSpeed;
-      const twist = Math.abs(twistRate)>1 ? twistRate : recent ? this.twistSpeed : 0;
       return {power:clamp((strength*this.sensitivity-4)/10,.2,1),rotation:clamp(turn*this.sensitivity/240,-1,1),twist:clamp(twist*this.sensitivity/180,-1,1)*this.handedness};
     }
     return null;

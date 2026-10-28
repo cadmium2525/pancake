@@ -2,7 +2,7 @@ import './style.css';
 import { Game, clamp } from './simulation';
 import { Kitchen } from './render';
 import { platedPancake, bakeLabel } from './plating';
-import { MotionController, type OrientationSample } from './motion';
+import { MotionController, wristRates, type OrientationSample } from './motion';
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 <main id="game"><canvas id="scene" aria-label="フライパンとパンケーキの3Dキッチン"></canvas>
@@ -12,7 +12,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 <div class="actions"><p id="hint" class="hint">焼いて、飛ばして、金メダル。</p><div class="charge" id="charge"><i id="chargefill"></i></div><div class="buttonrow"><button class="primary" id="toss" hidden disabled>ためて、離してトス ↑</button></div><div class="move" id="movecontrols" hidden><button id="left" aria-label="フライパンを左へ">←</button><button id="right" aria-label="フライパンを右へ">→</button></div><div class="keys" id="keys" hidden>長押し→離してトス・横に払ってひねり / 空中は左右移動のみ</div></div>
 <div class="rightnote"><span>YOUR PERSONAL BEST</span><strong id="best">—</strong><span>60 SECONDS. ONE PANCAKE.</span></div></div></div>
 <div id="cutin" class="cutin" aria-live="polite"><small id="cutlabel">ON THE AIR</small><strong id="cutname"></strong><em id="cutpoints"></em></div><div id="toast" class="toast" role="status"></div>
-<section class="modal" id="intro"><div class="card"><div class="label">THE BREAKFAST CHAMPIONSHIP</div><h1>PANCAKE<br><span>AXEL.</span></h1><p>焼いて、飛ばして、金メダル。<br>キッチンが、あなたの競技場になる。</p><div class="intro-points"><div><b>01</b>両面を焼く</div><div><b>02</b>返して飛ばす</div><div><b>03</b>おいしく着地</div></div><p>制限時間は60秒。トスは何回でも。<br>技だけでも、焼くだけでも、金メダルはとれない。</p><button class="primary" id="start">スマホを構えて、スタート →</button><p class="small" id="sensorstatus">まずモーション操作を確認します。非対応・許可できない場合はタッチ操作へ。スマホは手から離さずに。</p></div></section>
+<section class="modal" id="intro"><div class="card"><div class="label">THE BREAKFAST CHAMPIONSHIP</div><h1>PANCAKE<br><span>AXEL.</span></h1><div class="intro-points"><div><b>01</b>両面を焼く</div><div><b>02</b>返して飛ばす</div><div><b>03</b>おいしく着地</div></div><p>制限時間は60秒。トスは何回でも。</p><button class="primary" id="start">スマホを構えて、スタート →</button><p class="small" id="sensorstatus" role="status" hidden></p></div></section>
 <section class="modal paused" id="pausemodal" hidden><div class="card"><div class="label">TAKE A BREATHER</div><h2>ひと休み。</h2><p>時間も、焼き加減も止まっています。</p><button class="primary" id="resume">競技に戻る</button><button class="sensor" id="calibrate">モーションの水平を合わせる</button><div class="motionrow"><label for="hand">持つ手</label><select id="hand"><option value="1">右手</option><option value="-1">左手</option></select></div><div class="motionrow"><label for="sensitivity">感度</label><input id="sensitivity" type="range" min="0.5" max="2" step="0.1" value="1"></div></div></section>
 <section class="modal" id="result" hidden><div class="card"><div class="label">FINAL RESULT</div><h2 id="rank">おいしい演技でした！</h2><figure class="finished-pancake"><div id="plated"></div><figcaption id="bakecaption"></figcaption><button id="turnplate" class="sensor">裏面を見る ↻</button></figure><div class="finalscore" id="total">0</div><div class="eyebrow">TOTAL SCORE / 1000</div><div class="resultgrid"><div><small>技術点</small><strong id="finaltech"></strong></div><div><small>芸術点</small><strong id="finalart"></strong></div></div><p id="review"></p><p class="small">総合点 = √（技術点 × 芸術点）<br>両面の焼き色と着地の丁寧さが、芸術点に。</p><div class="share"><button id="share">スコアを共有 ↗</button><a id="sharex" target="_blank" rel="noopener noreferrer">X に投稿</a></div><p class="small" id="sharestatus" role="status"></p><button class="primary" id="retry">もう一枚、焼こう ↻</button></div></section></main>`;
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -78,7 +78,7 @@ async function prepareInput(){
   try {
     if(sensorPending)return;
     if(!window.DeviceOrientationEvent || !window.DeviceMotionEvent)throw new Error('unsupported');
-    sensorPending=true;button('start').disabled=button('retry').disabled=true;el('sensorstatus').textContent='スマホを楽な角度で持ってください。センサーを確認中…';
+    sensorPending=true;el('sensorstatus').hidden=false;button('start').disabled=button('retry').disabled=true;el('sensorstatus').textContent='スマホを楽な角度で持ってください。センサーを確認中…';
     const orientation=DeviceOrientationEvent as unknown as PermissionEvent, movement=DeviceMotionEvent as unknown as PermissionEvent;
     const asks=[orientation.requestPermission?.(),movement.requestPermission?.()].filter(Boolean);
     const result=await Promise.all(asks); if(result.some(v=>v!=='granted'))throw new Error('denied');
@@ -112,10 +112,8 @@ window.addEventListener('devicemotion',e=>{
   const a=hasAcceleration?raw:e.accelerationIncludingGravity;
   if(!a||[a.x,a.y,a.z].some(v=>v===null||!Number.isFinite(v)))return;
   latestAcceleration=performance.now();if(!motion||paused)return;
-  const rate=e.rotationRate;const speed=rate?Math.hypot(rate.beta??0,rate.gamma??0):0;
-  const screenAngle=(screen.orientation?.angle??0)*Math.PI/180;
-  const signedRate=(rate?.beta??0)*Math.cos(screenAngle)-(rate?.gamma??0)*Math.sin(screenAngle);
-  const toss=motionInput.acceleration({x:a.x!,y:a.y!,z:a.z!},!hasAcceleration,speed,latestAcceleration,game.phase==='cook',rate?.alpha??0,signedRate);
+  const screenAngle=latestOrientation?.screen??screen.orientation?.angle??0;
+  const toss=motionInput.acceleration({x:a.x!,y:a.y!,z:a.z!},!hasAcceleration,latestAcceleration,game.phase==='cook',wristRates(e.rotationRate,screenAngle));
   if(toss)launch(toss.power,toss.rotation,toss.twist);
 });
 let platedSide=0;
