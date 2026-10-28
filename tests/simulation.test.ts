@@ -9,3 +9,16 @@ test('one raw face or charred face cannot give a winning art score',()=>{const g
 test('repeated tricks yield diminishing returns and misses award no points',()=>{const g=new Game();g.phase='cook';g.heat=[10,10];g.launch(.5);advance(g,3);const first=g.technique;g.launch(.5);advance(g,3);assert.ok(g.technique-first<first);const before=g.technique;g.launch(.5);g.panTarget=-1.4;g.cakeX=1.4;advance(g,3);assert.equal(g.technique,before);});
 test('time expires during flight without awarding an unfinished trick',()=>{const g=new Game();g.phase='cook';g.remaining=.5;g.launch(1);advance(g,1);assert.equal(g.phase,'finished');assert.equal(g.remaining,0);assert.equal(g.technique,0);assert.ok(g.integrity<1);});
 test('a complete balanced round with centered catches can reach gold',()=>{const g=new Game();g.phase='cook';advance(g,20);const follow=(seconds:number)=>{for(let t=0;t<seconds;t+=.01){g.panTarget=g.cakeX;g.step(Math.min(.01,seconds-t));}};for(let i=0;i<7;i++){g.launch(.65,.65,1);follow(2.83);if(i===0)advance(g,20);}advance(g,g.remaining+.01);assert.equal(g.phase,'finished');assert.ok(g.technique>=800,`technique ${g.technique}`);assert.ok(g.art>=850,`art ${g.art}`);assert.ok(g.total>=800);});
+
+test('successful landings keep adding points beyond 1000 and total can exceed 1000',()=>{
+  const g=new Game();g.phase='cook';g.heat=[20,20];g.technique=990;
+  const land=()=>{g.launch(.5,.6);for(let t=0;t<2.65;t+=.01){g.panTarget=g.cakeX;g.step(.01);}};
+  land();assert.ok(g.technique>1000);assert.ok(g.total>1000);
+  const before=g.technique;land();assert.ok(g.technique>before);assert.ok(g.total>1000);
+});
+
+test('removing the cap still makes baking quality matter above 1000',()=>{
+  const golden=new Game();golden.technique=2500;golden.heat=[20,20];
+  const raw=new Game();raw.technique=2500;raw.heat=[3,3];
+  assert.ok(golden.total>1000);assert.ok(golden.total>raw.total*2);
+});

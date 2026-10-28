@@ -14,7 +14,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 <div id="cutin" class="cutin" aria-live="polite"><small id="cutlabel">ON THE AIR</small><strong id="cutname"></strong><em id="cutpoints"></em></div><div id="toast" class="toast" role="status"></div>
 <section class="modal" id="intro"><div class="card"><div class="label">THE BREAKFAST CHAMPIONSHIP</div><h1>PANCAKE<br><span>AXEL.</span></h1><div class="intro-points"><div><b>01</b>両面を焼く</div><div><b>02</b>返して飛ばす</div><div><b>03</b>おいしく着地</div></div><p>制限時間は60秒。トスは何回でも。</p><button class="primary" id="start">スマホを構えて、スタート →</button><p class="small" id="sensorstatus" role="status" hidden></p></div></section>
 <section class="modal paused" id="pausemodal" hidden><div class="card"><div class="label">TAKE A BREATHER</div><h2>ひと休み。</h2><p>時間も、焼き加減も止まっています。</p><button class="primary" id="resume">競技に戻る</button><button class="sensor" id="calibrate">モーションの水平を合わせる</button><div class="motionrow"><label for="hand">持つ手</label><select id="hand"><option value="1">右手</option><option value="-1">左手</option></select></div><div class="motionrow"><label for="sensitivity">感度</label><input id="sensitivity" type="range" min="0.5" max="2" step="0.1" value="1"></div></div></section>
-<section class="modal" id="result" hidden><div class="card"><div class="label">FINAL RESULT</div><h2 id="rank">おいしい演技でした！</h2><figure class="finished-pancake"><div id="plated"></div><figcaption id="bakecaption"></figcaption><button id="turnplate" class="sensor">裏面を見る ↻</button></figure><div class="finalscore" id="total">0</div><div class="eyebrow">TOTAL SCORE / 1000</div><div class="resultgrid"><div><small>技術点</small><strong id="finaltech"></strong></div><div><small>芸術点</small><strong id="finalart"></strong></div></div><p id="review"></p><p class="small">総合点 = √（技術点 × 芸術点）<br>両面の焼き色と着地の丁寧さが、芸術点に。</p><div class="share"><button id="share">スコアを共有 ↗</button><a id="sharex" target="_blank" rel="noopener noreferrer">X に投稿</a></div><p class="small" id="sharestatus" role="status"></p><button class="primary" id="retry">もう一枚、焼こう ↻</button></div></section></main>`;
+<section class="modal" id="result" hidden><div class="card"><div class="label">FINAL RESULT</div><h2 id="rank">おいしい演技でした！</h2><figure class="finished-pancake"><div id="plated"></div><figcaption id="bakecaption"></figcaption><button id="turnplate" class="sensor">裏面を見る ↻</button></figure><div class="finalscore" id="total">0</div><div class="eyebrow">TOTAL SCORE</div><div class="resultgrid"><div><small>技術点</small><strong id="finaltech"></strong></div><div><small>芸術点</small><strong id="finalart"></strong></div></div><p id="review"></p><p class="small">総合点 = √（技術点 × 芸術点）<br>両面の焼き色と着地の丁寧さが、芸術点に。</p><div class="share"><button id="share">スコアを共有 ↗</button><a id="sharex" target="_blank" rel="noopener noreferrer">X に投稿</a></div><p class="small" id="sharestatus" role="status"></p><button class="primary" id="retry">もう一枚、焼こう ↻</button></div></section></main>`;
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const button = (id: string) => el<HTMLButtonElement>(id);
 let game = new Game();
@@ -36,7 +36,8 @@ function tone(freq: number, duration = .13, type: OscillatorType = 'sine') {
 function toast(text: string) { el('toast').textContent=text; el('toast').classList.add('show'); toastUntil=performance.now()+2300; }
 function cut(name: string, detail: string, label='ON THE AIR') { toastUntil=0;el('toast').classList.remove('show');el('cutname').textContent=name; el('cutpoints').textContent=detail; el('cutlabel').textContent=label; el('cutin').classList.remove('show'); void el('cutin').offsetWidth; el('cutin').classList.add('show'); cutUntil=performance.now()+1700; }
 function attachLanding() { game.onLanding = l => {
-  cut(l.quality<.35?'あっ、とっと…！':l.golden?'ゴールデン ランディング':l.name, l.quality<.35?'姿勢が乱れた！ 焼き上がり −':`+${l.points} TECHNIQUE`,l.quality>=.9?'PERFECT CATCH':l.quality>=.7?'NICE CATCH':'SHAKY CATCH');
+  const rating=l.quality<.35?'姿勢が乱れた！':l.golden?'黄金色でぴたり着地！':l.quality>=.9?'ぴたり着地！':l.quality>=.7?'ナイスキャッチ！':'着地が少し不安定…';
+  toast(`${rating} ${l.quality<.35?'焼き上がり −':`+${l.points.toLocaleString()} 点`}`);
   tone(l.quality>.7?880:180,.2); if (l.quality>.9 && motion) navigator.vibrate?.(20);
 }; }
 attachLanding();
@@ -122,7 +123,7 @@ button('turnplate').onclick=()=>{platedSide=1-platedSide;showPlate();};
 function finish() {
   platedSide=0;showPlate();
   ended=true; charging=false; charge=0; el('cutin').classList.remove('show'); el('result').hidden=false;
-  el('total').textContent=String(game.total); el('finaltech').textContent=String(game.technique);el('finalart').textContent=String(game.art);
+  el('total').textContent=game.total.toLocaleString(); el('finaltech').textContent=game.technique.toLocaleString();el('finalart').textContent=game.art.toLocaleString();
   el('rank').textContent=game.total>=800?'金メダルの朝ごはん！':game.total>=600?'見事なパンケーキ演技！':game.total>=350?'おいしさ、上昇中。':'次の一枚で、リベンジ！';
   el('review').textContent=game.heat.some(h=>h<17||h>23)||game.art<350?'焼き加減が惜しい！ 両面のメーターを緑の枠に近づけよう。':game.technique<400?'いい焼き色！ 次は飛ばす瞬間の返し方やひねりに挑戦。':`${game.launches}回のトス、${game.catches}回の安定着地。いい香りの演技でした。`;
   if(game.total>best){best=game.total;try{localStorage.setItem('pancake-axel-best',String(best));}catch{}el('best').textContent=best+' pts';}
@@ -137,7 +138,7 @@ function frame(now: number){
   if(!paused){if(charging)charge=clamp(charge+dt/.9);if(left||right)game.panTarget=clamp(game.panTarget+((right?1:0)-(left?1:0))*dt*1.8,-1.4,1.4);game.step(dt);}
   if(motion&&!paused&&latestOrientation&&(now-latestOrientation.time>2500||now-latestAcceleration>2500)){disableMotion();toast('センサーが途切れました。タッチ操作に切り替えました');}
   kitchen.update(game,paused?0:dt,charge);
-  el('tech').textContent=String(game.technique).padStart(3,'0');el('art').textContent=String(game.art).padStart(3,'0');el('time').textContent=String(Math.ceil(game.remaining)).padStart(2,'0');el('timer').classList.toggle('urgent',game.remaining<=10);
+  el('tech').textContent=game.technique.toLocaleString().padStart(3,'0');el('art').textContent=String(game.art).padStart(3,'0');el('time').textContent=String(Math.ceil(game.remaining)).padStart(2,'0');el('timer').classList.toggle('urgent',game.remaining<=10);
   game.heat.forEach((h,i)=>{el('heat'+i).style.left=`${clamp(h/36)*100}%`;el('label'+i).textContent=h<5?'生地':h<17?'焼き中':h<=23?'食べ頃':h<29?'焼きすぎ':'焦げ';el('row'+i).classList.toggle('active',game.side===i);});
   const air=game.phase==='air';button('toss').hidden=motion||air||game.phase==='ready';button('toss').disabled=game.phase!=='cook'||paused;el('movecontrols').hidden=motion||game.phase==='ready';el('keys').hidden=motion||game.phase==='ready';
   el('charge').classList.toggle('visible',charging);el('chargefill').style.width=charge*100+'%';

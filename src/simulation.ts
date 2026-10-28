@@ -83,7 +83,7 @@ export class Game {
     const count = this.repeats[name] || 0; this.repeats[name] = count + 1;
     const base = spins > 0 && turns > 0 ? 270 : turns >= 3 ? 310 : turns >= 2 ? 210 : turns >= 1 ? 140 : 65;
     const points = quality < .35 ? 0 : Math.round(base * quality / (1 + count * .45));
-    this.technique = Math.min(1000, this.technique + points);
+    this.technique += points;
     if (quality >= .7) this.catches++;
     this.integrity = Math.max(.15, this.integrity - (1 - quality) * .2);
     this.side = 1 - this.side;
