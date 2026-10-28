@@ -1,6 +1,7 @@
 import './style.css';
 import { Game, clamp } from './simulation';
 import { Kitchen } from './render';
+import { platedPancake, bakeLabel } from './plating';
 import { MotionController, type OrientationSample } from './motion';
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
@@ -13,7 +14,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 <div id="cutin" class="cutin" aria-live="polite"><small id="cutlabel">ON THE AIR</small><strong id="cutname"></strong><em id="cutpoints"></em></div><div id="toast" class="toast" role="status"></div>
 <section class="modal" id="intro"><div class="card"><div class="label">THE BREAKFAST CHAMPIONSHIP</div><h1>PANCAKE<br><span>AXEL.</span></h1><p>焼いて、飛ばして、金メダル。<br>キッチンが、あなたの競技場になる。</p><div class="intro-points"><div><b>01</b>両面を焼く</div><div><b>02</b>空中で回す</div><div><b>03</b>おいしく着地</div></div><p>制限時間は60秒。トスは何回でも。<br>技だけでも、焼くだけでも、金メダルはとれない。</p><button class="primary" id="start">生地を注いで、スタート →</button><button class="sensor" id="sensor">スマホのモーション操作を使う</button><p class="small" id="sensorstatus">タッチだけでも遊べます。スマホは手から離さずに。</p></div></section>
 <section class="modal paused" id="pausemodal" hidden><div class="card"><div class="label">TAKE A BREATHER</div><h2>ひと休み。</h2><p>時間も、焼き加減も止まっています。</p><button class="primary" id="resume">競技に戻る</button><button class="sensor" id="calibrate">モーションの水平を合わせる</button><button class="sensor" id="touchmode">タッチ操作に切り替える</button><div class="motionrow"><label for="hand">持つ手</label><select id="hand"><option value="1">右手</option><option value="-1">左手</option></select></div><div class="motionrow"><label for="sensitivity">感度</label><input id="sensitivity" type="range" min="0.5" max="2" step="0.1" value="1"></div></div></section>
-<section class="modal" id="result" hidden><div class="card"><div class="label">FINAL RESULT</div><h2 id="rank">おいしい演技でした！</h2><div class="finalscore" id="total">0</div><div class="eyebrow">TOTAL SCORE / 1000</div><div class="resultgrid"><div><small>技術点</small><strong id="finaltech"></strong></div><div><small>芸術点</small><strong id="finalart"></strong></div></div><p id="review"></p><p class="small">総合点 = √（技術点 × 芸術点）<br>両面の焼き色と着地の丁寧さが、芸術点に。</p><div class="share"><button id="share">スコアを共有 ↗</button><a id="sharex" target="_blank" rel="noopener noreferrer">X に投稿</a></div><p class="small" id="sharestatus" role="status"></p><button class="primary" id="retry">もう一枚、焼こう ↻</button></div></section></main>`;
+<section class="modal" id="result" hidden><div class="card"><div class="label">FINAL RESULT</div><h2 id="rank">おいしい演技でした！</h2><figure class="finished-pancake"><div id="plated"></div><figcaption id="bakecaption"></figcaption><button id="turnplate" class="sensor">裏面を見る ↻</button></figure><div class="finalscore" id="total">0</div><div class="eyebrow">TOTAL SCORE / 1000</div><div class="resultgrid"><div><small>技術点</small><strong id="finaltech"></strong></div><div><small>芸術点</small><strong id="finalart"></strong></div></div><p id="review"></p><p class="small">総合点 = √（技術点 × 芸術点）<br>両面の焼き色と着地の丁寧さが、芸術点に。</p><div class="share"><button id="share">スコアを共有 ↗</button><a id="sharex" target="_blank" rel="noopener noreferrer">X に投稿</a></div><p class="small" id="sharestatus" role="status"></p><button class="primary" id="retry">もう一枚、焼こう ↻</button></div></section></main>`;
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const button = (id: string) => el<HTMLButtonElement>(id);
 let game = new Game();
@@ -109,7 +110,11 @@ window.addEventListener('devicemotion',e=>{
   const power=motionInput.acceleration({x:a.x!,y:a.y!,z:a.z!},!hasAcceleration,speed,latestAcceleration,game.phase==='cook');
   if(power!==null&&game.launch(power))tone(560,.2);
 });
+let platedSide=0;
+function showPlate(){el('plated').innerHTML=platedPancake(game.heat[platedSide],game.integrity,platedSide);el('bakecaption').textContent=(platedSide===0?'表':'裏')+'：'+bakeLabel(game.heat[platedSide]);button('turnplate').textContent=(platedSide===0?'裏面':'表面')+'を見る ↻';}
+button('turnplate').onclick=()=>{platedSide=1-platedSide;showPlate();};
 function finish() {
+  platedSide=0;showPlate();
   ended=true; charging=false; charge=0; el('cutin').classList.remove('show'); el('result').hidden=false;
   el('total').textContent=String(game.total); el('finaltech').textContent=String(game.technique);el('finalart').textContent=String(game.art);
   el('rank').textContent=game.total>=800?'金メダルの朝ごはん！':game.total>=600?'見事なパンケーキ演技！':game.total>=350?'おいしさ、上昇中。':'次の一枚で、リベンジ！';
@@ -135,5 +140,6 @@ function frame(now: number){
   if(game.phase==='finished'&&!ended)finish();requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
 
 
