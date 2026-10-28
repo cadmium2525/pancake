@@ -33,19 +33,26 @@ export class Game {
   repeats: Record<string, number> = {};
   onLanding?: (landing: Landing) => void;
   start() { this.phase = 'pour'; }
-  launch(power: number) {
+  launch(power: number, rotation = power, twist = 0) {
     if (this.phase !== 'cook' || this.remaining <= 0) return false;
     this.phase = 'air'; this.launches++; this.airTime = 0;
     this.duration = 2.1 + clamp(power) * 1.1;
     this.cakeX = this.panX;
     this.extra = this.extraTarget = this.twist = this.twistTarget = 0;
-    this.flipDirection = this.spinDirection = 1; this.catchAssisted = false;
+    this.flipDirection = rotation < 0 ? -1 : 1;
+    this.spinDirection = twist < 0 ? -1 : 1;
+    const strength = clamp(Math.abs(rotation));
+    const turns = strength < .25 ? 0 : strength < .5 ? 1 : strength < .8 ? 2 : 3;
+    this.extraTarget = turns * Math.PI * 2 * this.flipDirection;
+    this.twistTarget = Math.abs(twist) >= .35 ? Math.PI * 2 * this.spinDirection : 0;
+    this.catchAssisted = false;
     if (this.heat[0] + this.heat[1] < 3) this.integrity = Math.max(.2, this.integrity - .12);
     return true;
   }
-  flip(direction = 1) { if (this.phase === 'air' && Math.abs(this.extraTarget - this.extra) < .2) { if(this.extraTarget===0) this.flipDirection=direction; this.extraTarget += Math.PI * 2 * this.flipDirection; } }
-  spin(direction = 1) { if (this.phase === 'air' && Math.abs(this.twistTarget - this.twist) < .2) { if(this.twistTarget===0) this.spinDirection=direction; this.twistTarget += Math.PI * 2 * this.spinDirection; } }
-  assist() { if(this.phase==='air') { this.catchAssisted=true; this.panTarget=this.cakeX; } }
+  get trickName() {
+    const turns=Math.round(Math.abs(this.extraTarget)/(Math.PI*2));
+    return this.twistTarget!==0 && turns>0 ? 'トルネード フリップ' : turns>=3 ? 'トリプル アクセル' : turns>=2 ? 'ダブル フリップ' : turns>=1 ? 'シングル フリップ' : 'ハーフ フリップ';
+  }
   step(dt: number) {
     this.panX += (this.panTarget - this.panX) * (1 - Math.exp(-dt * 10));
     if (this.phase === 'pour') { this.pour += dt; if (this.pour >= 2.6) this.phase = 'cook'; return; }
@@ -57,10 +64,10 @@ export class Game {
       this.airTime += actual;
       const p = clamp(this.airTime / this.duration);
       this.height = 4 * p * (1 - p) * (2.4 + (this.duration - 2.1));
-      this.extra += clamp(this.extraTarget - this.extra,-actual*13,actual*13);
-      this.twist += clamp(this.twistTarget - this.twist,-actual*14,actual*14);
-      this.angle = this.side * Math.PI + p * Math.PI + this.extra;
-      this.cakeX += Math.sin(this.launches * 2.4) * actual * .14;
+      this.extra = this.extraTarget * p;
+      this.twist = this.twistTarget * p;
+      this.angle = this.side * Math.PI + p * Math.PI * this.flipDirection + this.extra;
+      this.cakeX += Math.sin(this.launches * 2.4) * actual * (.14 + Math.abs(this.extraTarget)/(Math.PI*2)*.06);
       if (p >= 1) this.land();
     }
     if (this.remaining <= 0) { if (this.phase === 'air') { this.integrity *= .65; this.height = 0; } this.phase = 'finished'; }
