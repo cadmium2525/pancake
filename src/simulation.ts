@@ -94,5 +94,14 @@ export class Game {
     const quality = this.heat.map(h => h <= IDEAL_HEAT ? clamp(h / IDEAL_HEAT) : clamp(1 - (h - IDEAL_HEAT) / 14));
     return Math.round(1000 * Math.sqrt(quality[0] * quality[1]) * this.integrity);
   }
-  get total() { return Math.round(Math.sqrt(this.technique * this.art)); }
+  // Cooking is a multiplier on the whole performance: more tricks cannot
+  // substitute for two properly cooked faces. Technique itself stays uncapped.
+  get finishMultiplier() { return (this.art / 1000) ** 2; }
+  get total() { return Math.round(this.technique * this.finishMultiplier); }
+  get medal(): 'gold' | 'silver' | 'bronze' | 'practice' {
+    if (this.total >= 1200 && this.art >= 900 && this.heat.every(h => h >= 17 && h <= 23)) return 'gold';
+    if (this.total >= 800 && this.art >= 750) return 'silver';
+    if (this.total >= 350) return 'bronze';
+    return 'practice';
+  }
 }

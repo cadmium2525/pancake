@@ -15,7 +15,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 <div id="cutin" class="cutin" aria-live="polite"><small id="cutlabel">ON THE AIR</small><strong id="cutname"></strong><em id="cutpoints"></em></div><div id="toast" class="toast" role="status"></div>
 <section class="modal" id="intro"><div class="card"><div class="label">THE BREAKFAST CHAMPIONSHIP</div><h1>PANCAKE<br><span>AXEL.</span></h1><div class="intro-points"><div><b>01</b>両面を焼く</div><div><b>02</b>返して飛ばす</div><div><b>03</b>おいしく着地</div></div><p>制限時間は60秒。トスは何回でも。</p><button class="primary" id="start">スマホを構えて、スタート →</button><p class="small" id="sensorstatus" role="status" hidden></p></div></section>
 <section class="modal paused" id="pausemodal" hidden><div class="card"><div class="label">TAKE A BREATHER</div><h2>ひと休み。</h2><p>時間も、焼き加減も止まっています。</p><button class="primary" id="resume">競技に戻る</button><button class="sensor" id="calibrate">モーションの水平を合わせる</button><div class="motionrow"><label for="hand">持つ手</label><select id="hand"><option value="1">右手</option><option value="-1">左手</option></select></div><div class="motionrow"><label for="sensitivity">感度</label><input id="sensitivity" type="range" min="0.5" max="2" step="0.1" value="1"></div></div></section>
-<section class="modal" id="result" hidden><div class="card"><div class="label">FINAL RESULT</div><h2 id="rank">おいしい演技でした！</h2><figure class="finished-pancake"><div id="plated"></div><figcaption id="bakecaption"></figcaption><button id="turnplate" class="sensor">裏面を見る ↻</button></figure><div class="finalscore" id="total">0</div><div class="eyebrow">TOTAL SCORE</div><div class="resultgrid"><div><small>技術点</small><strong id="finaltech"></strong></div><div><small>芸術点</small><strong id="finalart"></strong></div></div><p id="review"></p><p class="small">総合点 = √（技術点 × 芸術点）<br>両面の焼き色と着地の丁寧さが、芸術点に。</p><div class="share"><button id="share">スコアを共有 ↗</button><a id="sharex" target="_blank" rel="noopener noreferrer">X に投稿</a></div><div class="sharetools"><a id="savecard" hidden>カード画像を保存 ↓</a><button id="copyshare">文章をコピー</button></div><details id="cardpreview" class="cardpreview" hidden><summary>スコアカードを見る</summary><img id="scoreimage" alt="完成したパンケーキ・総合点・技術点・芸術点・ハッシュタグ付きスコアカード"></details><p class="small sharehelp">画像が添付されない共有先では、カードを保存して投稿に添付できます。</p><p class="small" id="sharestatus" role="status"></p><button class="primary" id="retry">もう一枚、焼こう ↻</button></div></section></main>`;
+<section class="modal" id="result" hidden><div class="card"><div class="label">FINAL RESULT</div><h2 id="rank">おいしい演技でした！</h2><figure class="finished-pancake"><div id="plated"></div><figcaption id="bakecaption"></figcaption><button id="turnplate" class="sensor">裏面を見る ↻</button></figure><div class="finalscore" id="total">0</div><div class="eyebrow">TOTAL SCORE</div><div class="resultgrid"><div><small>技術点</small><strong id="finaltech"></strong></div><div><small>芸術点</small><strong id="finalart"></strong></div></div><p id="review"></p><p class="small"><span id="finishbonus"></span><br>総合点 = 技術点 ×（芸術点 ÷ 1,000）²<br>両面の焼き色と着地の丁寧さが、最後の得点を決めます。</p><div class="share"><button id="share">スコアを共有 ↗</button><a id="sharex" target="_blank" rel="noopener noreferrer">X に投稿</a></div><div class="sharetools"><a id="savecard" hidden>カード画像を保存 ↓</a><button id="copyshare">文章をコピー</button></div><details id="cardpreview" class="cardpreview" hidden><summary>スコアカードを見る</summary><img id="scoreimage" alt="完成したパンケーキ・総合点・技術点・芸術点・ハッシュタグ付きスコアカード"></details><p class="small sharehelp">画像が添付されない共有先では、カードを保存して投稿に添付できます。</p><p class="small" id="sharestatus" role="status"></p><button class="primary" id="retry">もう一枚、焼こう ↻</button></div></section></main>`;
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const button = (id: string) => el<HTMLButtonElement>(id);
 let game = new Game();
@@ -27,7 +27,8 @@ let scoreFile: File | undefined, scoreImageUrl = '', scoreGeneration = 0;
 let motion = false, sensorPending = false, latestOrientation: OrientationSample | undefined, latestAcceleration = -Infinity;
 const motionInput = new MotionController();
 let best = 0;
-try { best = Number(localStorage.getItem('pancake-axel-best')) || 0; } catch { /* Private mode can disable persistence. */ }
+const BEST_SCORE_KEY = 'pancake-axel-best-v2';
+try { best = Number(localStorage.getItem(BEST_SCORE_KEY)) || 0; } catch { /* Private mode can disable persistence. */ }
 el('best').textContent = best ? best.toLocaleString() + ' pts' : '—';
 try { kitchen = new Kitchen(el<HTMLCanvasElement>('scene')); }
 catch { el('game').innerHTML = '<div class="loaderror"><h2>3D画面を起動できませんでした</h2><p>WebGL対応のブラウザで、ハードウェアアクセラレーションを有効にしてください。</p><button onclick="location.reload()">もう一度試す</button></div>'; throw new Error('WebGL initialization failed'); }
@@ -126,9 +127,10 @@ function finish() {
   platedSide=0;showPlate();
   ended=true; charging=false; charge=0; el('cutin').classList.remove('show'); el('result').hidden=false;
   el('total').textContent=game.total.toLocaleString(); el('finaltech').textContent=game.technique.toLocaleString();el('finalart').textContent=game.art.toLocaleString();
-  el('rank').textContent=game.total>=800?'金メダルの朝ごはん！':game.total>=600?'見事なパンケーキ演技！':game.total>=350?'おいしさ、上昇中。':'次の一枚で、リベンジ！';
+  el('rank').textContent=game.medal==='gold'?'金メダルの朝ごはん！':game.medal==='silver'?'見事なパンケーキ演技！':game.medal==='bronze'?'おいしさ、上昇中。':'次の一枚で、リベンジ！';
   el('review').textContent=game.heat.some(h=>h<17||h>23)||game.art<350?'焼き加減が惜しい！ 両面のメーターを緑の枠に近づけよう。':game.technique<400?'いい焼き色！ 次は飛ばす瞬間の返し方やひねりに挑戦。':`${game.launches}回のトス、${game.catches}回の安定着地。いい香りの演技でした。`;
-  if(game.total>best){best=game.total;try{localStorage.setItem('pancake-axel-best',String(best));}catch{}el('best').textContent=best+' pts';}
+  el('finishbonus').textContent=`焼き上がり補正 × ${game.finishMultiplier.toFixed(2)}`;
+  if(game.total>best){best=game.total;try{localStorage.setItem(BEST_SCORE_KEY,String(best));}catch{}el('best').textContent=best+' pts';}
   el<HTMLAnchorElement>('sharex').href=`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText())}`;
   prepareScoreCard();tone(1046,.4);
 }
