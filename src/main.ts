@@ -2,6 +2,7 @@ import './style.css';
 import { Game, clamp } from './simulation';
 import { Kitchen } from './render';
 import { platedPancake, bakeLabel } from './plating';
+import { createScoreCard, scoreMessage, shareScore, type ScoreCard } from './sharing';
 import { MotionController, wristRates, type OrientationSample } from './motion';
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
@@ -14,7 +15,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 <div id="cutin" class="cutin" aria-live="polite"><small id="cutlabel">ON THE AIR</small><strong id="cutname"></strong><em id="cutpoints"></em></div><div id="toast" class="toast" role="status"></div>
 <section class="modal" id="intro"><div class="card"><div class="label">THE BREAKFAST CHAMPIONSHIP</div><h1>PANCAKE<br><span>AXEL.</span></h1><div class="intro-points"><div><b>01</b>両面を焼く</div><div><b>02</b>返して飛ばす</div><div><b>03</b>おいしく着地</div></div><p>制限時間は60秒。トスは何回でも。</p><button class="primary" id="start">スマホを構えて、スタート →</button><p class="small" id="sensorstatus" role="status" hidden></p></div></section>
 <section class="modal paused" id="pausemodal" hidden><div class="card"><div class="label">TAKE A BREATHER</div><h2>ひと休み。</h2><p>時間も、焼き加減も止まっています。</p><button class="primary" id="resume">競技に戻る</button><button class="sensor" id="calibrate">モーションの水平を合わせる</button><div class="motionrow"><label for="hand">持つ手</label><select id="hand"><option value="1">右手</option><option value="-1">左手</option></select></div><div class="motionrow"><label for="sensitivity">感度</label><input id="sensitivity" type="range" min="0.5" max="2" step="0.1" value="1"></div></div></section>
-<section class="modal" id="result" hidden><div class="card"><div class="label">FINAL RESULT</div><h2 id="rank">おいしい演技でした！</h2><figure class="finished-pancake"><div id="plated"></div><figcaption id="bakecaption"></figcaption><button id="turnplate" class="sensor">裏面を見る ↻</button></figure><div class="finalscore" id="total">0</div><div class="eyebrow">TOTAL SCORE</div><div class="resultgrid"><div><small>技術点</small><strong id="finaltech"></strong></div><div><small>芸術点</small><strong id="finalart"></strong></div></div><p id="review"></p><p class="small">総合点 = √（技術点 × 芸術点）<br>両面の焼き色と着地の丁寧さが、芸術点に。</p><div class="share"><button id="share">スコアを共有 ↗</button><a id="sharex" target="_blank" rel="noopener noreferrer">X に投稿</a></div><p class="small" id="sharestatus" role="status"></p><button class="primary" id="retry">もう一枚、焼こう ↻</button></div></section></main>`;
+<section class="modal" id="result" hidden><div class="card"><div class="label">FINAL RESULT</div><h2 id="rank">おいしい演技でした！</h2><figure class="finished-pancake"><div id="plated"></div><figcaption id="bakecaption"></figcaption><button id="turnplate" class="sensor">裏面を見る ↻</button></figure><div class="finalscore" id="total">0</div><div class="eyebrow">TOTAL SCORE</div><div class="resultgrid"><div><small>技術点</small><strong id="finaltech"></strong></div><div><small>芸術点</small><strong id="finalart"></strong></div></div><p id="review"></p><p class="small">総合点 = √（技術点 × 芸術点）<br>両面の焼き色と着地の丁寧さが、芸術点に。</p><div class="share"><button id="share">スコアを共有 ↗</button><a id="sharex" target="_blank" rel="noopener noreferrer">X に投稿</a></div><div class="sharetools"><a id="savecard" hidden>カード画像を保存 ↓</a><button id="copyshare">文章をコピー</button></div><details id="cardpreview" class="cardpreview" hidden><summary>スコアカードを見る</summary><img id="scoreimage" alt="完成したパンケーキ・総合点・技術点・芸術点・ハッシュタグ付きスコアカード"></details><p class="small sharehelp">画像が添付されない共有先では、カードを保存して投稿に添付できます。</p><p class="small" id="sharestatus" role="status"></p><button class="primary" id="retry">もう一枚、焼こう ↻</button></div></section></main>`;
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const button = (id: string) => el<HTMLButtonElement>(id);
 let game = new Game();
@@ -22,6 +23,7 @@ let kitchen: Kitchen;
 let paused = false, charging = false, charge = 0, last = performance.now(), ended = false;
 let muted = true, audio: AudioContext | undefined;
 let toastUntil = 0, cutUntil = 0, left = false, right = false;
+let scoreFile: File | undefined, scoreImageUrl = '', scoreGeneration = 0;
 let motion = false, sensorPending = false, latestOrientation: OrientationSample | undefined, latestAcceleration = -Infinity;
 const motionInput = new MotionController();
 let best = 0;
@@ -37,11 +39,11 @@ function toast(text: string) { el('toast').textContent=text; el('toast').classLi
 function cut(name: string, detail: string, label='ON THE AIR') { toastUntil=0;el('toast').classList.remove('show');el('cutname').textContent=name; el('cutpoints').textContent=detail; el('cutlabel').textContent=label; el('cutin').classList.remove('show'); void el('cutin').offsetWidth; el('cutin').classList.add('show'); cutUntil=performance.now()+1700; }
 function attachLanding() { game.onLanding = l => {
   const rating=l.quality<.35?'姿勢が乱れた！':l.golden?'黄金色でぴたり着地！':l.quality>=.9?'ぴたり着地！':l.quality>=.7?'ナイスキャッチ！':'着地が少し不安定…';
-  toast(`${rating} ${l.quality<.35?'焼き上がり −':`+${l.points.toLocaleString()} 点`}`);
+  cut(l.name, `${rating} ${l.quality<.35?'焼き上がり −':`+${l.points.toLocaleString()} 点`}`, 'LANDING');
   tone(l.quality>.7?880:180,.2); if (l.quality>.9 && motion) navigator.vibrate?.(20);
 }; }
 attachLanding();
-function start() { game=new Game(); game.motionControlled=motion; if(motion&&latestOrientation)motionInput.calibrate(latestOrientation);attachLanding(); ended=false; paused=false; charging=false; charge=0; left=right=false; game.start(); el('intro').hidden=true; el('result').hidden=true; tone(440); toast(motion?'モーション操作：返してトス！':'センサーが使えないため、タッチ操作でスタート'); }
+function start() { scoreGeneration++;game=new Game(); game.motionControlled=motion; if(motion&&latestOrientation)motionInput.calibrate(latestOrientation);attachLanding(); ended=false; paused=false; charging=false; charge=0; left=right=false; game.start(); el('intro').hidden=true; el('result').hidden=true; tone(440); toast(motion?'モーション操作：返してトス！':'センサーが使えないため、タッチ操作でスタート'); }
 async function beginRound(){if(sensorPending)return;await prepareInput();start();}
 button('start').onclick=beginRound; button('retry').onclick=beginRound;
 el<HTMLSelectElement>('hand').onchange=e=>{motionInput.handedness=Number((e.target as HTMLSelectElement).value);};
@@ -49,7 +51,7 @@ function beginCharge() { if (motion || paused || game.phase!=='cook') return; ch
 let swipeX=0, swipeY=0, pressX=0, pressY=0;
 function launch(power:number,rotation:number,twist:number){
   if(paused||!game.launch(power,rotation,twist))return;
-  tone(560,.2);cut(game.trickName, 'あとは、フライパンで受け止めよう！','TAKE OFF');
+  tone(560,.2);
 }
 function releaseCharge() {
   if(!charging)return;charging=false;
@@ -127,12 +129,42 @@ function finish() {
   el('rank').textContent=game.total>=800?'金メダルの朝ごはん！':game.total>=600?'見事なパンケーキ演技！':game.total>=350?'おいしさ、上昇中。':'次の一枚で、リベンジ！';
   el('review').textContent=game.heat.some(h=>h<17||h>23)||game.art<350?'焼き加減が惜しい！ 両面のメーターを緑の枠に近づけよう。':game.technique<400?'いい焼き色！ 次は飛ばす瞬間の返し方やひねりに挑戦。':`${game.launches}回のトス、${game.catches}回の安定着地。いい香りの演技でした。`;
   if(game.total>best){best=game.total;try{localStorage.setItem('pancake-axel-best',String(best));}catch{}el('best').textContent=best+' pts';}
-  const text=shareText(); el<HTMLAnchorElement>('sharex').href=`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(publicUrl())}`;
-  el('sharestatus').textContent='';tone(1046,.4);
+  el<HTMLAnchorElement>('sharex').href=`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText())}`;
+  prepareScoreCard();tone(1046,.4);
 }
 function publicUrl(){return location.href.split('?')[0].split('#')[0];}
-function shareText(){return `PANCAKE AXEL で ${game.total}点！ 技術 ${game.technique} / 芸術 ${game.art} 🥞 #PANCAKEAXEL`;}
-button('share').onclick=async()=>{try{if(navigator.share){await navigator.share({title:'PANCAKE AXEL',text:shareText(),url:publicUrl()});el('sharestatus').textContent='共有しました';}else{await navigator.clipboard.writeText(`${shareText()}\n${publicUrl()}`);el('sharestatus').textContent='スコアとURLをコピーしました';}}catch(e){el('sharestatus').textContent=(e as Error).name==='AbortError'?'共有をキャンセルしました':'コピーできませんでした。「X に投稿」から共有できます。';}};
+function scoreSnapshot(): ScoreCard { return {total:game.total,technique:game.technique,art:game.art,heat:[...game.heat],integrity:game.integrity}; }
+function shareText(){return scoreMessage(scoreSnapshot(), publicUrl());}
+function prepareScoreCard(){
+  const generation=++scoreGeneration;scoreFile=undefined;
+  if(scoreImageUrl)URL.revokeObjectURL(scoreImageUrl);scoreImageUrl='';
+  button('share').disabled=true;el('savecard').hidden=true;el('cardpreview').hidden=true;
+  el('sharestatus').textContent='スコアカードを準備しています…';
+  void createScoreCard(scoreSnapshot(),publicUrl()).then(file=>{
+    if(generation!==scoreGeneration)return;
+    scoreFile=file;scoreImageUrl=URL.createObjectURL(file);
+    const save=el<HTMLAnchorElement>('savecard');save.href=scoreImageUrl;save.download=file.name;save.hidden=false;
+    el<HTMLImageElement>('scoreimage').src=scoreImageUrl;el('cardpreview').hidden=false;
+    button('share').disabled=false;el('sharestatus').textContent='画像・投稿文・ハッシュタグをまとめて共有できます。';
+  }).catch(()=>{if(generation===scoreGeneration){button('share').disabled=false;el('sharestatus').textContent='画像を作成できませんでした。投稿文は共有できます。';}});
+}
+button('copyshare').onclick=async()=>{try{await navigator.clipboard.writeText(shareText());el('sharestatus').textContent='スコア・文章・ハッシュタグ・URLをコピーしました。';}catch{el('sharestatus').textContent='コピーできませんでした。「X に投稿」から投稿文を開けます。';}};
+button('share').onclick=async()=>{
+  button('share').disabled=true;
+  try{
+    // The PNG is prepared before this tap, keeping native share within the
+    // user gesture required by iOS and Android.
+    const mode=scoreFile?await shareScore(scoreSnapshot(),publicUrl(),scoreFile,navigator):navigator.share?(await navigator.share({title:'PANCAKE AXEL',text:shareText()}),'text'):'unavailable';
+    if(mode==='image')el('sharestatus').textContent='カード画像と投稿文の共有画面を開きました。';
+    else if(mode==='text')el('sharestatus').textContent='投稿文の共有画面を開きました。画像は「カード画像を保存」から添付できます。';
+    else{
+      if(scoreFile)el<HTMLAnchorElement>('savecard').click();
+      try{await navigator.clipboard.writeText(shareText());el('sharestatus').textContent=scoreFile?'カード画像を保存し、投稿文をコピーしました。SNSで画像を添付してください。':'投稿文をコピーしました。';}
+      catch{el('sharestatus').textContent='「カード画像を保存」「文章をコピー」または「X に投稿」をお使いください。';}
+    }
+  }catch(error){el('sharestatus').textContent=(error as Error).name==='AbortError'?'共有をキャンセルしました。':'共有できませんでした。カード画像の保存と投稿文のコピーをお使いください。';}
+  finally{button('share').disabled=false;}
+};
 function frame(now: number){
   const dt=Math.min((now-last)/1000,.05);last=now;
   if(!paused){if(charging)charge=clamp(charge+dt/.9);if(left||right)game.panTarget=clamp(game.panTarget+((right?1:0)-(left?1:0))*dt*1.8,-1.4,1.4);game.step(dt);}
@@ -144,7 +176,7 @@ function frame(now: number){
   el('charge').classList.toggle('visible',charging);el('chargefill').style.width=charge*100+'%';
   el('hint').textContent=game.phase==='pour'?'とろ〜り。おいしい演技のはじまり。':air?(game.airTime/game.duration>.73?(motion?(motionInput.level?'水平 OK！ そのままキャッチ':'水平に戻してキャッチ！'):'フライパンを動かして受け止めよう！'):'飛ばしたら見守ろう。フライパンを落下位置へ'):game.phase==='cook'?(game.heat[game.side]>23?'焦げちゃう！ 今すぐひっくり返そう':game.heat[game.side]<3?'まずは生地を落ち着かせよう':(motion?'手首をクイッと返してトス！':'ためて離す。横に払うとひねり！')):'焼いて、飛ばして、金メダル。';
   if(now>toastUntil)el('toast').classList.remove('show');if(now>cutUntil)el('cutin').classList.remove('show');
-  if(game.phase==='finished'&&!ended)finish();requestAnimationFrame(frame);
+  if(game.phase==='finished'&&!ended&&now>=cutUntil)finish();requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
